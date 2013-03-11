@@ -1048,6 +1048,8 @@ static int ubifs_parse_options(struct ubifs_info *c, char *options,
 				c->mount_opts.compr_type = UBIFS_COMPR_LZO;
 			else if (!strcmp(name, "zlib"))
 				c->mount_opts.compr_type = UBIFS_COMPR_ZLIB;
+			else if (!strcmp(name, "xz"))
+				c->mount_opts.compr_type = UBIFS_COMPR_XZ;
 			else {
 				ubifs_err("unknown compressor \"%s\"", name);
 				kfree(name);

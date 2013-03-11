@@ -91,6 +91,7 @@ chk_data_crc		do not skip checking CRCs on data nodes
 compr=none              override default compressor and set it to "none"
 compr=lzo               override default compressor and set it to "lzo"
 compr=zlib              override default compressor and set it to "zlib"
+compr=xz                override default compressor and set it to "xz"
 
 
 Quick usage instructions
