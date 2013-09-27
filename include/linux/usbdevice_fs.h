@@ -70,6 +70,12 @@ struct usbdevfs_getdriver {
 	char driver[USBDEVFS_MAXDRIVERNAME + 1];
 };
 
+struct usbdevfs_memory {
+	u32 size;
+	u32 offset;
+	void __user *buffer;
+};
+
 struct usbdevfs_connectinfo {
 	unsigned int devnum;
 	unsigned char slow;
@@ -204,4 +210,6 @@ struct usbdevfs_ioctl32 {
 #define USBDEVFS_CONNECT           _IO('U', 23)
 #define USBDEVFS_CLAIM_PORT        _IOR('U', 24, unsigned int)
 #define USBDEVFS_RELEASE_PORT      _IOR('U', 25, unsigned int)
+#define USBDEVFS_ALLOC_MEMORY      _IOWR('U', 28, struct usbdevfs_memory)
+#define USBDEVFS_RELEASE_MEMORY       _IOW('U', 29, struct usbdevfs_memory)
 #endif /* _LINUX_USBDEVICE_FS_H */

@@ -66,6 +66,7 @@ struct dev_state {
 	spinlock_t lock;            /* protects the async urb lists */
 	struct list_head async_pending;
 	struct list_head async_completed;
+	struct list_head memory_list;
 	wait_queue_head_t wait;     /* wake up if a request completed */
 	unsigned int discsignr;
 	struct pid *disc_pid;
@@ -90,6 +91,16 @@ struct async {
 	u32 secid;
 	u8 bulk_addr;
 	u8 bulk_status;
+};
+
+struct usb_memory {
+	struct list_head memlist;
+	int vma_use_count;
+	int usb_use_count;
+	u32 offset;
+	u32 size;
+	void *mem;
+	unsigned long vm_start;
 };
 
 static int usbfs_snoop;
@@ -248,10 +259,28 @@ static struct async *alloc_async(unsigned int numisoframes)
 
 static void free_async(struct async *as)
 {
+	struct usb_memory *usbm = NULL, *usbm_iter;
+	unsigned long flags;
+	struct dev_state *ps = as->ps;
+
 	put_pid(as->pid);
 	if (as->cred)
 		put_cred(as->cred);
-	kfree(as->urb->transfer_buffer);
+
+	spin_lock_irqsave(&ps->lock, flags);
+	list_for_each_entry(usbm_iter, &ps->memory_list, memlist) {
+		if (usbm_iter->mem == as->urb->transfer_buffer) {
+			usbm = usbm_iter;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&ps->lock, flags);
+
+	if (usbm == NULL)
+		kfree(as->urb->transfer_buffer);
+	else
+		usbm->usb_use_count--;
+
 	kfree(as->urb->setup_packet);
 	usb_free_urb(as->urb);
 	kfree(as);
@@ -742,6 +771,7 @@ static int usbdev_open(struct inode *inode, struct file *file)
 	INIT_LIST_HEAD(&ps->list);
 	INIT_LIST_HEAD(&ps->async_pending);
 	INIT_LIST_HEAD(&ps->async_completed);
+	INIT_LIST_HEAD(&ps->memory_list);
 	init_waitqueue_head(&ps->wait);
 	ps->discsignr = 0;
 	ps->disc_pid = get_pid(task_pid(current));
@@ -770,6 +800,8 @@ static int usbdev_release(struct inode *inode, struct file *file)
 	struct dev_state *ps = file->private_data;
 	struct usb_device *dev = ps->dev;
 	unsigned int ifnum;
+	struct list_head *p, *q;
+	struct usb_memory *tmp;
 	struct async *as;
 
 	usb_lock_device(dev);
@@ -793,6 +825,14 @@ static int usbdev_release(struct inode *inode, struct file *file)
 	while (as) {
 		free_async(as);
 		as = async_getcompleted(ps);
+	}
+
+	list_for_each_safe(p, q, &ps->memory_list) {
+		tmp = list_entry(p, struct usb_memory, memlist);
+		list_del(p);
+		if (tmp->mem)
+			free_pages_exact(tmp->mem, tmp->size);
+		kfree(tmp);
 	}
 	kfree(ps);
 	return 0;
@@ -1080,6 +1120,64 @@ static int proc_setconfig(struct dev_state *ps, void __user *arg)
 	return status;
 }
 
+static int proc_release_memory(struct dev_state *ps, void __user *arg)
+{
+	struct usbdevfs_memory m;
+	struct usb_memory *usbm;
+	unsigned long flags;
+
+	if (copy_from_user(&m, arg, sizeof(m)))
+		return -EFAULT;
+
+	spin_lock_irqsave(&ps->lock, flags);
+	list_for_each_entry(usbm, &ps->memory_list, memlist) {
+		if (((void*)usbm->vm_start == m.buffer || usbm->offset == m.offset) &&
+			usbm->usb_use_count == 0 && usbm->vma_use_count == 0) {
+
+			list_del_init(&usbm->memlist);
+			spin_unlock_irqrestore(&ps->lock, flags);
+			free_pages_exact(usbm->mem, usbm->size);
+			kfree(usbm);
+			return 0;
+		}
+	}
+	spin_unlock_irqrestore(&ps->lock, flags);
+	return -EBUSY;
+}
+
+static int proc_alloc_memory(struct dev_state *ps, void __user *arg)
+{
+	struct usbdevfs_memory m;
+	struct usb_memory *usbmem;
+	void *mem;
+	unsigned long flags;
+
+	if (copy_from_user(&m, arg, sizeof(m)))
+		return -EFAULT;
+
+	mem = alloc_pages_exact(m.size, GFP_KERNEL | GFP_DMA32);
+	if (!mem)
+		return -ENOMEM;
+	
+	usbmem = kzalloc(sizeof(struct usb_memory), GFP_KERNEL);
+	if (!usbmem) {
+		free_pages_exact(mem, m.size);
+		return -ENOMEM;
+	}
+	memset(mem, 0x0, (PAGE_SIZE<<get_order(m.size)));
+	usbmem->mem = mem;
+	m.offset = usbmem->offset = virt_to_phys(mem);
+	usbmem->size = m.size;
+	spin_lock_irqsave(&ps->lock, flags);
+	list_add_tail(&usbmem->memlist, &ps->memory_list);
+	spin_unlock_irqrestore(&ps->lock, flags);
+
+	if (copy_to_user(arg, &m, sizeof(m)))
+		return -EFAULT;
+
+	return 0;
+}
+
 static int proc_do_submiturb(struct dev_state *ps, struct usbdevfs_urb *uurb,
 			struct usbdevfs_iso_packet_desc __user *iso_frame_desc,
 			void __user *arg)
@@ -1088,6 +1186,7 @@ static int proc_do_submiturb(struct dev_state *ps, struct usbdevfs_urb *uurb,
 	struct usb_host_endpoint *ep;
 	struct async *as;
 	struct usb_ctrlrequest *dr = NULL;
+	struct usb_memory *usbm = NULL, *iter = NULL;
 	unsigned int u, totlen, isofrmlen;
 	int ret, ifnum = -1;
 	int is_in;
@@ -1219,7 +1318,6 @@ static int proc_do_submiturb(struct dev_state *ps, struct usbdevfs_urb *uurb,
 		}
 		uurb->buffer_length = totlen;
 		break;
-
 	default:
 		return -EINVAL;
 	}
@@ -1236,20 +1334,51 @@ static int proc_do_submiturb(struct dev_state *ps, struct usbdevfs_urb *uurb,
 		kfree(dr);
 		return -ENOMEM;
 	}
+	as->ps = ps;
 	if (uurb->buffer_length > 0) {
-		as->urb->transfer_buffer = kmalloc(uurb->buffer_length,
-				GFP_KERNEL);
-		if (!as->urb->transfer_buffer) {
-			kfree(isopkt);
-			kfree(dr);
-			free_async(as);
-			return -ENOMEM;
+		if (!list_empty(&ps->memory_list)) {
+			unsigned long flags;
+			usbm=NULL;
+			as->urb->transfer_buffer = NULL;
+			spin_lock_irqsave(&ps->lock, flags);
+			list_for_each_entry(iter, &ps->memory_list, memlist) {
+				if ((void*)iter->vm_start == uurb->buffer && iter->usb_use_count == 0 && 
+						(PAGE_SIZE<<get_order(iter->size)) >= uurb->buffer_length) {
+					usbm = iter;
+					usbm->usb_use_count++;
+					break;
+				}
+			}
+			spin_unlock_irqrestore(&ps->lock, flags);
+			if (usbm) {
+				as->urb->transfer_buffer = usbm->mem;
+			} else {
+				kfree(isopkt);
+				kfree(dr);
+				free_async(as);
+				return -ENOMEM;
+			}
+			if (as->urb->transfer_buffer == NULL) {
+				kfree(isopkt);
+				kfree(dr);
+				free_async(as);
+				return -ENOMEM;
+			}
+		} else {
+			as->urb->transfer_buffer = kmalloc(uurb->buffer_length,
+					GFP_KERNEL);
+			if (!as->urb->transfer_buffer) {
+				kfree(isopkt);
+				kfree(dr);
+				free_async(as);
+				return -ENOMEM;
+			}	
 		}
 		/* Isochronous input data may end up being discontiguous
 		 * if some of the packets are short.  Clear the buffer so
 		 * that the gaps don't leak kernel data to userspace.
 		 */
-		if (is_in && uurb->type == USBDEVFS_URB_TYPE_ISO)
+		if (is_in && uurb->type == USBDEVFS_URB_TYPE_ISO && usbm == NULL)
 			memset(as->urb->transfer_buffer, 0,
 					uurb->buffer_length);
 	}
@@ -1292,7 +1421,6 @@ static int proc_do_submiturb(struct dev_state *ps, struct usbdevfs_urb *uurb,
 		totlen += isopkt[u].length;
 	}
 	kfree(isopkt);
-	as->ps = ps;
 	as->userurb = arg;
 	if (is_in && uurb->buffer_length > 0)
 		as->userbuffer = uurb->buffer;
@@ -1303,10 +1431,12 @@ static int proc_do_submiturb(struct dev_state *ps, struct usbdevfs_urb *uurb,
 	as->pid = get_pid(task_pid(current));
 	as->cred = get_current_cred();
 	security_task_getsecid(current, &as->secid);
-	if (!is_in && uurb->buffer_length > 0) {
+	if (!is_in && uurb->buffer_length > 0 && usbm == NULL) {
 		if (copy_from_user(as->urb->transfer_buffer, uurb->buffer,
 				uurb->buffer_length)) {
 			free_async(as);
+			if (usbm)
+				usbm->usb_use_count--;
 			return -EFAULT;
 		}
 	}
@@ -1354,6 +1484,8 @@ static int proc_do_submiturb(struct dev_state *ps, struct usbdevfs_urb *uurb,
 				0, ret, COMPLETE, NULL, 0);
 		async_removepending(as);
 		free_async(as);
+		if (usbm)
+			usbm->usb_use_count--;
 		return ret;
 	}
 	return 0;
@@ -1963,6 +2095,16 @@ static long usbdev_do_ioctl(struct file *file, unsigned int cmd,
 		snoop(&dev->dev, "%s: RELEASE_PORT\n", __func__);
 		ret = proc_release_port(ps, p);
 		break;
+
+	case USBDEVFS_ALLOC_MEMORY:
+		snoop(&dev->dev, "%s: ALLOC_MEMORY\n", __func__);
+		ret = proc_alloc_memory(ps, p);
+		break;
+
+	case USBDEVFS_RELEASE_MEMORY:
+		snoop(&dev->dev, "%s: RELEASE_MEMORY\n", __func__);
+		ret = proc_release_memory(ps, p);
+		break;
 	}
 	usb_unlock_device(dev);
 	if (ret >= 0)
@@ -2007,6 +2149,59 @@ static unsigned int usbdev_poll(struct file *file,
 	return mask;
 }
 
+static void usbdev_vm_open(struct vm_area_struct *vma)
+{
+	struct usb_memory *usbm = vma->vm_private_data;
+	usbm->vma_use_count++;
+}
+
+static void usbdev_vm_close(struct vm_area_struct *vma)
+{
+	struct usb_memory *usbm = vma->vm_private_data;
+	usbm->vma_use_count--;
+}
+
+
+struct vm_operations_struct usbdev_vm_ops = {
+	.open = usbdev_vm_open,
+	.close = usbdev_vm_close
+};
+
+static int usbdev_mmap(struct file *file, struct vm_area_struct *vma) 
+{
+	struct usb_memory *usbm = NULL, *usbm_iter = NULL;
+	struct dev_state *ps = file->private_data;
+	int size = vma->vm_end - vma->vm_start;
+	unsigned long flags;
+	spin_lock_irqsave(&ps->lock, flags);
+	list_for_each_entry(usbm_iter, &ps->memory_list, memlist) {
+
+		if (usbm_iter->offset == (vma->vm_pgoff<<PAGE_SHIFT) && 
+			size <= (PAGE_SIZE<<get_order(usbm_iter->size))) {
+			usbm = usbm_iter;
+			usbm->vm_start = vma->vm_start;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&ps->lock, flags);
+
+	if (usbm == NULL)
+		return -EINVAL;
+
+	if (remap_pfn_range(vma, vma->vm_start, virt_to_phys(usbm->mem) >> PAGE_SHIFT,
+		size,
+		vma->vm_page_prot) < 0)
+		return -EAGAIN;
+	
+	vma->vm_flags |= VM_IO;
+	vma->vm_flags |= VM_RESERVED; //(VM_DONTEXPAND | VM_DONTDUMP); newer kernels use don't expand/don't dump
+	vma->vm_ops = &usbdev_vm_ops;
+	vma->vm_private_data = usbm;
+	usbdev_vm_open(vma);
+	return 0;
+}
+
+
 const struct file_operations usbdev_file_operations = {
 	.owner =	  THIS_MODULE,
 	.llseek =	  usbdev_lseek,
@@ -2016,6 +2211,7 @@ const struct file_operations usbdev_file_operations = {
 #ifdef CONFIG_COMPAT
 	.compat_ioctl =   usbdev_compat_ioctl,
 #endif
+	.mmap =		  usbdev_mmap,
 	.open =		  usbdev_open,
 	.release =	  usbdev_release,
 };
