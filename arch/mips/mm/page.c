@@ -86,7 +86,9 @@ static u32 clear_page_array[0x120 / 4];
 #ifdef CONFIG_SIBYTE_DMA_PAGEOPS
 void clear_page_cpu(void *page) __attribute__((alias("clear_page_array")));
 #else
-void clear_page(void *page) __attribute__((alias("clear_page_array")));
+void clear_page(void *page) {
+        ((void(*)(void*))clear_page_array)(page);
+}
 #endif
 
 EXPORT_SYMBOL(clear_page);
@@ -105,7 +107,9 @@ static u32 copy_page_array[0x540 / 4];
 void
 copy_page_cpu(void *to, void *from) __attribute__((alias("copy_page_array")));
 #else
-void copy_page(void *to, void *from) __attribute__((alias("copy_page_array")));
+void copy_page(void *to, void *from) {
+        ((void(*)(void*, void*))copy_page_array)(to, from);
+}
 #endif
 
 EXPORT_SYMBOL(copy_page);
