@@ -1,0 +1,7 @@
+#
+# ATI XILLEON boards
+#
+platform-$(CONFIG_ATI_XILLEON)	+= ati/xilleon/
+cflags-$(CONFIG_ATI_XILLEON)	+=					\
+		-I$(srctree)/arch/mips/include/asm/mach-xilleon
+load-$(CONFIG_ATI_XILLEON)	:= 0xffffffff80100000

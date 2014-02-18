@@ -56,8 +56,6 @@ struct jffs2_compressor {
 			  uint32_t cdatalen, uint32_t datalen);
 	int usecount;
 	int disabled;		/* if set the compressor won't compress */
-	unsigned char *compr_buf;	/* used by size compr. mode */
-	uint32_t compr_buf_size;	/* used by size compr. mode */
 	uint32_t stat_compr_orig_size;
 	uint32_t stat_compr_new_size;
 	uint32_t stat_compr_blocks;

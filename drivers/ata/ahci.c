@@ -1192,6 +1192,11 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* prepare host */
 	if (hpriv->cap & HOST_CAP_NCQ) {
+#if defined(CONFIG_BCM7422A0) || defined(CONFIG_BCM7425A0) || \
+		defined(CONFIG_BCM7346A0) || defined(CONFIG_BCM7231A0)
+		/* HW7425-442: NCQ broken on A0 silicon */
+		pi.flags &= ~ATA_FLAG_NCQ;
+#else
 		pi.flags |= ATA_FLAG_NCQ;
 		/*
 		 * Auto-activate optimization is supposed to be
@@ -1201,6 +1206,7 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		 */
 		if (!(hpriv->flags & AHCI_HFLAG_NO_FPDMA_AA))
 			pi.flags |= ATA_FLAG_FPDMA_AA;
+#endif
 	}
 
 	if (hpriv->cap & HOST_CAP_PMP)

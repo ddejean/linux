@@ -19,6 +19,7 @@ obj-$(CONFIG_SATA_SX4)		+= sata_sx4.o
 
 # SFF SATA w/ BMDMA
 obj-$(CONFIG_ATA_PIIX)		+= ata_piix.o
+obj-$(CONFIG_SATA_BRCMSTB)	+= sata_brcmstb.o
 obj-$(CONFIG_SATA_MV)		+= sata_mv.o
 obj-$(CONFIG_SATA_NV)		+= sata_nv.o
 obj-$(CONFIG_SATA_PROMISE)	+= sata_promise.o
@@ -74,6 +75,7 @@ obj-$(CONFIG_PATA_TOSHIBA)	+= pata_piccolo.o
 obj-$(CONFIG_PATA_TRIFLEX)	+= pata_triflex.o
 obj-$(CONFIG_PATA_VIA)		+= pata_via.o
 obj-$(CONFIG_PATA_WINBOND)	+= pata_sl82c105.o
+obj-$(CONFIG_PATA_XILLEON)	+= pata_xilleon.o
 
 # SFF PIO only
 obj-$(CONFIG_PATA_AT32)		+= pata_at32.o

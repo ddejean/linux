@@ -456,13 +456,25 @@ static void mem_serial_out(struct uart_port *p, int offset, int value)
 static void mem32_serial_out(struct uart_port *p, int offset, int value)
 {
 	offset = map_8250_out_reg(p, offset) << p->regshift;
+#ifdef CONFIG_BRCMSTB
+	/* not on PCI; avoid endian swapping */
+	__raw_writel(value, p->membase + offset);
+
+	/* flush out the write transaction (required on BMIPS5000) */
+	mb();
+#else
 	writel(value, p->membase + offset);
+#endif
 }
 
 static unsigned int mem32_serial_in(struct uart_port *p, int offset)
 {
 	offset = map_8250_in_reg(p, offset) << p->regshift;
+#ifdef CONFIG_BRCMSTB
+	return __raw_readl(p->membase + offset);
+#else
 	return readl(p->membase + offset);
+#endif
 }
 
 static unsigned int au_serial_in(struct uart_port *p, int offset)
@@ -565,8 +577,10 @@ static inline int _serial_dl_read(struct uart_8250_port *up)
 /* Uart divisor latch write */
 static inline void _serial_dl_write(struct uart_8250_port *up, int value)
 {
+#if !defined(CONFIG_BRCM_IKOS) && !defined(CONFIG_BRCM_HAS_PCU_UARTS)
 	serial_outp(up, UART_DLL, value & 0xff);
 	serial_outp(up, UART_DLM, value >> 8 & 0xff);
+#endif
 }
 
 #if defined(CONFIG_MIPS_ALCHEMY)
@@ -2344,13 +2358,22 @@ serial8250_do_set_termios(struct uart_port *port, struct ktermios *termios,
 		cval |= UART_LCR_SPAR;
 #endif
 
-	/*
-	 * Ask the core to calculate the divisor for us.
-	 */
-	baud = uart_get_baud_rate(port, termios, old,
+#if defined(CONFIG_DREAMBOX_DM500HD) || defined(CONFIG_DREAMBOX_DM800SE) || defined(CONFIG_DREAMBOX_DM7020HD)
+	if (port->line == 0) {  // uart 0
+		quot = 5;
+		baud = 1000000;
+	}
+	else
+#endif
+	{
+		/*
+		 * Ask the core to calculate the divisor for us.
+		 */
+		baud = uart_get_baud_rate(port, termios, old,
 				  port->uartclk / 16 / 0xffff,
 				  port->uartclk / 16);
-	quot = serial8250_get_divisor(port, baud);
+		quot = serial8250_get_divisor(port, baud);
+	}
 
 	/*
 	 * Oxford Semi 952 rev B workaround

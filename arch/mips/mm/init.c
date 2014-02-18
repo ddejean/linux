@@ -368,7 +368,7 @@ void __init mem_init(void)
 #ifdef CONFIG_DISCONTIGMEM
 #error "CONFIG_HIGHMEM and CONFIG_DISCONTIGMEM dont work together yet"
 #endif
-	max_mapnr = highend_pfn ? highend_pfn : max_low_pfn;
+	max_mapnr = highend_pfn ? : max_low_pfn;
 #else
 	max_mapnr = max_low_pfn;
 #endif
@@ -389,6 +389,9 @@ void __init mem_init(void)
 #ifdef CONFIG_HIGHMEM
 	for (tmp = highstart_pfn; tmp < highend_pfn; tmp++) {
 		struct page *page = pfn_to_page(tmp);
+
+		if (!pfn_valid(tmp))
+			continue;
 
 		if (!page_is_ram(tmp)) {
 			SetPageReserved(page);

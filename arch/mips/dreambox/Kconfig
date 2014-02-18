@@ -1,0 +1,48 @@
+config DREAMBOX
+	bool "Compile for Dreambox STB"
+	default n
+	depends on ATI_XILLEON || BCM7400E0 || BCM7401C0 || BCM7405B0 || BCM7405D0
+	select FB_CFB_COPYAREA
+	select FB_CFB_FILLRECT
+	select FB_CFB_IMAGEBLIT
+
+config DREAMBOX_SWAP_ATA_PORTS
+	bool "Swap SATA ports"
+	default y if DREAMBOX_DM800SE
+	default n if !DREAMBOX_DM800SE
+
+config DREAMBOX_FIRST_SUPPORTS_HW_ECC
+	bool
+	default n
+
+choice
+	prompt "Dreambox model"
+	depends on DREAMBOX
+
+config DREAMBOX_DM500HD
+	bool "DM 500 HD"
+	depends on BCM7405B0
+
+config DREAMBOX_DM800
+	bool "DM 800 HD PVR"
+	depends on BCM7401C0
+
+config DREAMBOX_DM800SE
+	bool "DM 800 HD SE"
+	depends on BCM7405D0
+
+config DREAMBOX_DM7020HD
+	bool "DM 7020 HD"
+	depends on BCM7405D0
+	select DREAMBOX_FIRST_SUPPORTS_HW_ECC
+	select BRCM_UPPER_MEMORY
+
+config DREAMBOX_DM7025
+	bool "DM 7025+"
+	depends on ATI_XILLEON
+
+config DREAMBOX_DM8000
+	bool "DM 8000 HD PVR"
+	depends on BCM7400E0
+
+endchoice

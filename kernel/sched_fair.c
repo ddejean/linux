@@ -4531,6 +4531,9 @@ static void nohz_balancer_kick(int cpu)
 	if (!cpu_rq(ilb_cpu)->nohz_balance_kick) {
 		cpu_rq(ilb_cpu)->nohz_balance_kick = 1;
 
+		if (ilb_cpu == smp_processor_id())
+			return;
+
 		smp_mb();
 		/*
 		 * Use smp_send_reschedule() instead of resched_cpu().

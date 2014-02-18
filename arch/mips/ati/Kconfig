@@ -1,0 +1,6 @@
+
+config XILLEON_VIRTUAL_GEN_INTS
+	bool "Xilleon: Use virtual GEN interrupts"
+	default y
+	depends on ATI_XILLEON
+

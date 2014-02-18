@@ -18,6 +18,9 @@
 extern struct op_mips_model op_model_mipsxx_ops __weak;
 extern struct op_mips_model op_model_rm9000_ops __weak;
 extern struct op_mips_model op_model_loongson2_ops __weak;
+#ifdef CONFIG_BRCMSTB
+extern struct op_mips_model op_model_bmips_ops __attribute__((weak));
+#endif
 
 static struct op_mips_model *model;
 
@@ -91,6 +94,17 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 	case CPU_R14000:
 		lmodel = &op_model_mipsxx_ops;
 		break;
+
+#ifdef CONFIG_BRCMSTB
+	case CPU_BMIPS3300:
+	case CPU_BMIPS4380:
+		lmodel = &op_model_bmips_ops;
+		break;
+
+	case CPU_BMIPS5000:
+		lmodel = &op_model_mipsxx_ops;
+		break;
+#endif
 
 	case CPU_RM9000:
 		lmodel = &op_model_rm9000_ops;

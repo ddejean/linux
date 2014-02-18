@@ -20,7 +20,13 @@
  * functions.
  */
 void (*_machine_restart)(char *command);
+
+EXPORT_SYMBOL(_machine_restart);
+
 void (*_machine_halt)(void);
+
+EXPORT_SYMBOL(_machine_halt);
+
 void (*pm_power_off)(void);
 
 EXPORT_SYMBOL(pm_power_off);

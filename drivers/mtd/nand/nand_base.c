@@ -505,7 +505,7 @@ static void panic_nand_wait_ready(struct mtd_info *mtd, unsigned long timeo)
 void nand_wait_ready(struct mtd_info *mtd)
 {
 	struct nand_chip *chip = mtd->priv;
-	unsigned long timeo = jiffies + 2;
+	unsigned long timeo = jiffies + msecs_to_jiffies(500);
 
 	/* 400ms timeout */
 	if (in_interrupt() || oops_in_progress)
@@ -2680,7 +2680,7 @@ erase_exit:
 		if (!rewrite_bbt[chipnr])
 			continue;
 		/* Update the BBT for chip */
-		pr_debug("%s: nand_update_bbt (%d:0x%0llx 0x%0x)\n",
+		pr_debug("%s: nand_update_bbt (%d:0x%0llx 0x%0llx)\n",
 				__func__, chipnr, rewrite_bbt[chipnr],
 				chip->bbt_td->pages[chipnr]);
 		nand_update_bbt(mtd, rewrite_bbt[chipnr]);

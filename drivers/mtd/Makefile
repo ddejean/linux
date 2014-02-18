@@ -30,5 +30,6 @@ nftl-objs		:= nftlcore.o nftlmount.o
 inftl-objs		:= inftlcore.o inftlmount.o
 
 obj-y		+= chips/ lpddr/ maps/ devices/ nand/ onenand/ tests/
+obj-$(CONFIG_MTD_BRCMNAND)	+= brcmnand/
 
 obj-$(CONFIG_MTD_UBI)		+= ubi/

@@ -31,7 +31,6 @@
 #include <linux/wait.h>
 #include <linux/slab.h>
 #include <linux/poll.h>
-#include <linux/semaphore.h>
 #include <linux/module.h>
 #include <linux/list.h>
 #include <linux/freezer.h>
@@ -108,7 +107,7 @@ struct dvb_frontend_private {
 	struct dvb_frontend_parameters parameters_in;
 	struct dvb_frontend_parameters parameters_out;
 	struct dvb_fe_events events;
-	struct semaphore sem;
+	struct mutex lock;
 	struct list_head list_head;
 	wait_queue_head_t wait_queue;
 	struct task_struct *thread;
@@ -190,12 +189,12 @@ static int dvb_frontend_get_event(struct dvb_frontend *fe,
 		if (flags & O_NONBLOCK)
 			return -EWOULDBLOCK;
 
-		up(&fepriv->sem);
+		mutex_unlock(&fepriv->lock);
 
 		ret = wait_event_interruptible (events->wait_queue,
 						events->eventw != events->eventr);
 
-		if (down_interruptible (&fepriv->sem))
+		if (mutex_lock_interruptible(&fepriv->lock))
 			return -ERESTARTSYS;
 
 		if (ret < 0)
@@ -507,7 +506,7 @@ static int dvb_frontend_is_exiting(struct dvb_frontend *fe)
 		return 1;
 
 	if (fepriv->dvbdev->writers == 1)
-		if (time_after(jiffies, fepriv->release_jiffies +
+		if (time_after_eq(jiffies, fepriv->release_jiffies +
 				  dvb_shutdown_timeout * HZ))
 			return 1;
 
@@ -544,19 +543,8 @@ static int dvb_frontend_thread(void *data)
 
 	dprintk("%s\n", __func__);
 
-	fepriv->check_wrapped = 0;
-	fepriv->quality = 0;
-	fepriv->delay = 3*HZ;
-	fepriv->status = 0;
-	fepriv->wakeup = 0;
-	fepriv->reinitialise = 0;
-
-	dvb_frontend_init(fe);
-
 	set_freezable();
 	while (1) {
-		up(&fepriv->sem);	    /* is locked when we enter the thread... */
-restart:
 		wait_event_interruptible_timeout(fepriv->wait_queue,
 			dvb_frontend_should_wakeup(fe) || kthread_should_stop()
 				|| freezing(current),
@@ -569,9 +557,9 @@ restart:
 		}
 
 		if (try_to_freeze())
-			goto restart;
+			continue;
 
-		if (down_interruptible(&fepriv->sem))
+		if (mutex_lock_interruptible(&fepriv->lock))
 			break;
 
 		if (fepriv->reinitialise) {
@@ -660,6 +648,8 @@ restart:
 		} else {
 			dvb_frontend_swzigzag(fe);
 		}
+
+		mutex_unlock(&fepriv->lock);
 	}
 
 	if (dvb_powerdown_on_sleep) {
@@ -701,7 +691,7 @@ static void dvb_frontend_stop(struct dvb_frontend *fe)
 
 	kthread_stop(fepriv->thread);
 
-	sema_init(&fepriv->sem, 1);
+	mutex_init(&fepriv->lock);
 	fepriv->state = FESTATE_IDLE;
 
 	/* paranoia check in case a signal arrived */
@@ -770,12 +760,22 @@ static int dvb_frontend_start(struct dvb_frontend *fe)
 
 	if (signal_pending(current))
 		return -EINTR;
-	if (down_interruptible (&fepriv->sem))
+	if (mutex_lock_interruptible(&fepriv->lock))
 		return -EINTR;
 
 	fepriv->state = FESTATE_IDLE;
 	fepriv->exit = DVB_FE_NO_EXIT;
 	fepriv->thread = NULL;
+
+	fepriv->check_wrapped = 0;
+	fepriv->quality = 0;
+	fepriv->delay = 3*HZ;
+	fepriv->status = 0;
+	fepriv->wakeup = 0;
+	fepriv->reinitialise = 0;
+
+	dvb_frontend_init(fe);
+
 	mb();
 
 	fe_thread = kthread_run(dvb_frontend_thread, fe,
@@ -783,11 +783,12 @@ static int dvb_frontend_start(struct dvb_frontend *fe)
 	if (IS_ERR(fe_thread)) {
 		ret = PTR_ERR(fe_thread);
 		printk("dvb_frontend_start: failed to start kthread (%d)\n", ret);
-		up(&fepriv->sem);
-		return ret;
+	} else {
+		fepriv->thread = fe_thread;
+		ret = 0;
 	}
-	fepriv->thread = fe_thread;
-	return 0;
+	mutex_unlock(&fepriv->lock);
+	return ret;
 }
 
 static void dvb_frontend_get_frequency_limits(struct dvb_frontend *fe,
@@ -1532,7 +1533,7 @@ static int dvb_frontend_ioctl(struct file *file,
 	     cmd == FE_DISEQC_RECV_SLAVE_REPLY))
 		return -EPERM;
 
-	if (down_interruptible (&fepriv->sem))
+	if (mutex_lock_interruptible(&fepriv->lock))
 		return -ERESTARTSYS;
 
 	if ((cmd == FE_SET_PROPERTY) || (cmd == FE_GET_PROPERTY))
@@ -1542,7 +1543,7 @@ static int dvb_frontend_ioctl(struct file *file,
 		err = dvb_frontend_ioctl_legacy(file, cmd, parg);
 	}
 
-	up(&fepriv->sem);
+	mutex_unlock(&fepriv->lock);
 	return err;
 }
 
@@ -2061,12 +2062,15 @@ static int dvb_frontend_release(struct inode *inode, struct file *file)
 
 	dprintk ("%s\n", __func__);
 
-	if ((file->f_flags & O_ACCMODE) != O_RDONLY)
+	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
 		fepriv->release_jiffies = jiffies;
+		mb();
+	}
 
 	ret = dvb_generic_release (inode, file);
 
 	if (dvbdev->users == -1) {
+		wake_up(&fepriv->wait_queue);
 		if (fepriv->exit != DVB_FE_NO_EXIT) {
 			fops_put(file->f_op);
 			file->f_op = NULL;
@@ -2112,7 +2116,7 @@ int dvb_register_frontend(struct dvb_adapter* dvb,
 	}
 	fepriv = fe->frontend_priv;
 
-	sema_init(&fepriv->sem, 1);
+	mutex_init(&fepriv->lock);
 	init_waitqueue_head (&fepriv->wait_queue);
 	init_waitqueue_head (&fepriv->events.wait_queue);
 	mutex_init(&fepriv->events.mtx);

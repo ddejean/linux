@@ -87,6 +87,10 @@
 #include <asm/uaccess.h>
 #include <asm/system.h>
 
+#ifdef CONFIG_BRCMSTB
+#include <asm/brcmstb/brcmapi.h>
+#endif
+
 #define STR(x)  __STR(x)
 #define __STR(x)  #x
 
@@ -448,10 +452,21 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 	case ldc1_op:
 	case swc1_op:
 	case sdc1_op:
+#ifdef CONFIG_BRCMSTB
+		switch (brcm_unaligned_fp(addr, &insn, regs)) {
+		case -EINVAL:
+			goto sigbus;
+		case -EFAULT:
+			goto fault;
+		}
+		compute_return_epc(regs);
+		break;
+#else
 		/*
 		 * I herewith declare: this does not happen.  So send SIGBUS.
 		 */
 		goto sigbus;
+#endif
 
 	/*
 	 * COP2 is available to implementor for application specific use.

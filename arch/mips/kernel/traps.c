@@ -55,6 +55,10 @@
 #include <asm/stacktrace.h>
 #include <asm/uasm.h>
 
+#ifdef CONFIG_BRCMSTB
+#include <asm/brcmstb/brcmapi.h>
+#endif
+
 extern void check_wait(void);
 extern asmlinkage void r4k_wait(void);
 extern asmlinkage void rollback_handle_int(void);
@@ -130,6 +134,9 @@ static void show_backtrace(struct task_struct *task, const struct pt_regs *regs)
 	unsigned long sp = regs->regs[29];
 	unsigned long ra = regs->regs[31];
 	unsigned long pc = regs->cp0_epc;
+
+	if (!task)
+		task = current;
 
 	if (raw_show_trace || !__kernel_text_address(pc)) {
 		show_raw_backtrace(sp);
@@ -605,6 +612,10 @@ static int simulate_rdhwr(struct pt_regs *regs, unsigned int opcode)
 {
 	struct thread_info *ti = task_thread_info(current);
 
+#ifdef CONFIG_BRCMSTB
+	if (brcm_simulate_opcode(regs, opcode) == 0)
+		return 0;
+#endif
 	if ((opcode & OPCODE) == SPEC3 && (opcode & FUNC) == RDHWR) {
 		int rd = (opcode & RD) >> 11;
 		int rt = (opcode & RT) >> 16;
@@ -1017,6 +1028,24 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 
 		return;
 
+	case 3:
+		/*
+		 * Old (MIPS I and MIPS II) processors will set this code
+		 * for COP1X opcode instructions that replaced the original
+		 * COP3 space.  We don't limit COP1 space instructions in
+		 * the emulator according to the CPU ISA, so we want to
+		 * treat COP1X instructions consistently regardless of which
+		 * code the CPU chose.  Therefore we redirect this trap to
+		 * the FP emulator too.
+		 *
+		 * Then some newer FPU-less processors use this code
+		 * erroneously too, so they are covered by this choice
+		 * as well.
+		 */
+		if (raw_cpu_has_fpu)
+			break;
+		/* Fall through.  */
+
 	case 1:
 		if (used_math())	/* Using the FPU again.  */
 			own_fpu(1);
@@ -1040,9 +1069,6 @@ asmlinkage void do_cpu(struct pt_regs *regs)
 	case 2:
 		raw_notifier_call_chain(&cu2_chain, CU2_EXCEPTION, regs);
 		return;
-
-	case 3:
-		break;
 	}
 
 	force_sig(SIGILL, current);
@@ -1353,6 +1379,10 @@ unsigned long ebase;
 unsigned long exception_handlers[32];
 unsigned long vi_handlers[64];
 
+#ifdef CONFIG_BRCMSTB
+EXPORT_SYMBOL(ebase);
+#endif
+
 void __init *set_except_vector(int n, void *addr)
 {
 	unsigned long handler = (unsigned long) addr;
@@ -1545,7 +1575,11 @@ void __cpuinit per_cpu_trap_init(void)
 	change_c0_status(ST0_CU|ST0_MX|ST0_RE|ST0_FR|ST0_BEV|ST0_TS|ST0_KX|ST0_SX|ST0_UX,
 			 status_set);
 
+#if defined(CONFIG_BMIPS5000)
+	if (1)
+#else
 	if (cpu_has_mips_r2)
+#endif
 		hwrena |= 0x0000000f;
 
 	if (!noulri && cpu_has_userlocal)
@@ -1608,7 +1642,11 @@ void __cpuinit per_cpu_trap_init(void)
 	if (bootTC) {
 #endif /* CONFIG_MIPS_MT_SMTC */
 		cpu_cache_init();
+#ifdef CONFIG_BRCMSTB
+		brcm_tlb_init();
+#else
 		tlb_init();
+#endif
 #ifdef CONFIG_MIPS_MT_SMTC
 	} else if (!secondaryTC) {
 		/*
@@ -1677,9 +1715,13 @@ void __init trap_init(void)
 		ebase = (unsigned long)
 			__alloc_bootmem(size, 1 << fls(size), 0);
 	} else {
+#ifdef CONFIG_BRCMSTB
+		ebase = brcm_setup_ebase();
+#else
 		ebase = CKSEG0;
 		if (cpu_has_mips_r2)
 			ebase += (read_c0_ebase() & 0x3ffff000);
+#endif
 	}
 
 	per_cpu_trap_init();

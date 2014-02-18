@@ -1,0 +1,4 @@
+#
+# dreambox boards
+#
+platform-$(CONFIG_DREAMBOX)	+= dreambox/

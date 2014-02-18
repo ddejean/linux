@@ -86,7 +86,12 @@ static void __devinit pcibios_scanbus(struct pci_controller *hose)
 	if (!hose->iommu)
 		PCI_DMA_BUS_IS_PHYS = 1;
 
+#ifdef CONFIG_BRCMSTB
+	/* BSP code needs to assign bus numbers */
+	if (hose->get_busno)
+#else
 	if (hose->get_busno && pci_probe_only)
+#endif
 		next_busno = (*hose->get_busno)();
 
 	bus = pci_scan_bus(next_busno, hose->pci_ops, hose);
@@ -158,7 +163,8 @@ static int __init pcibios_init(void)
 	for (hose = hose_head; hose; hose = hose->next)
 		pcibios_scanbus(hose);
 
-	pci_fixup_irqs(pci_common_swizzle, pcibios_map_irq);
+	pci_fixup_irqs(pci_common_swizzle,
+		       (int (*)(struct pci_dev *, u8, u8))pcibios_map_irq);
 
 	pci_initialized = 1;
 

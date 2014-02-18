@@ -116,6 +116,10 @@ static inline void set_io_port_base(unsigned long base)
  */
 static inline unsigned long virt_to_phys(volatile const void *address)
 {
+#ifdef CONFIG_BRCM_UPPER_256MB
+	if ((unsigned long)address >= CAC_BASE_UPPER)
+		return (unsigned long)address - CAC_BASE_UPPER + UPPERMEM_START;
+#endif
 	return (unsigned long)address - PAGE_OFFSET + PHYS_OFFSET;
 }
 
@@ -133,6 +137,10 @@ static inline unsigned long virt_to_phys(volatile const void *address)
  */
 static inline void * phys_to_virt(unsigned long address)
 {
+#ifdef CONFIG_BRCM_UPPER_256MB
+	if (address >= UPPERMEM_START)
+		return (void *)(address + CAC_BASE_UPPER - UPPERMEM_START);
+#endif
 	return (void *)(address + PAGE_OFFSET - PHYS_OFFSET);
 }
 
@@ -199,6 +207,7 @@ static inline void __iomem * __ioremap_mode(phys_t offset, unsigned long size,
 		if (!size || last_addr < phys_addr)
 			return NULL;
 
+#if !defined(CONFIG_BRCM_UPPER_768MB)
 		/*
 		 * Map uncached objects in the low 512MB of address
 		 * space using KSEG1.
@@ -207,6 +216,7 @@ static inline void __iomem * __ioremap_mode(phys_t offset, unsigned long size,
 		    flags == _CACHE_UNCACHED)
 			return (void __iomem *)
 				(unsigned long)CKSEG1ADDR(phys_addr);
+#endif
 	}
 
 	return __ioremap(offset, size, flags);

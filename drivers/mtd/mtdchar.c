@@ -410,6 +410,7 @@ static int mtd_do_writeoob(struct file *file, struct mtd_info *mtd,
 	if (ret)
 		return ret;
 
+	ops.len = length;
 	ops.ooblen = length;
 	ops.ooboffs = start & (mtd->writesize - 1);
 	ops.datbuf = NULL;
@@ -455,6 +456,7 @@ static int mtd_do_readoob(struct file *file, struct mtd_info *mtd,
 	if (ret)
 		return ret;
 
+	ops.len = length;
 	ops.ooblen = length;
 	ops.ooboffs = start & (mtd->writesize - 1);
 	ops.datbuf = NULL;
@@ -667,7 +669,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 	case MEMGETINFO:
 		memset(&info, 0, sizeof(info));
 		info.type	= mtd->type;
-		info.flags	= mtd->flags;
+		info.flags	= mtd->flags & ~(1<<31);
 		info.size	= mtd->size;
 		info.erasesize	= mtd->erasesize;
 		info.writesize	= mtd->writesize;

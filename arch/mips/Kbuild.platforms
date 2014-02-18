@@ -3,11 +3,14 @@
 platforms += alchemy
 platforms += ar7
 platforms += ath79
+platforms += ati
 platforms += bcm47xx
 platforms += bcm63xx
+platforms += brcmstb
 platforms += cavium-octeon
 platforms += cobalt
 platforms += dec
+platforms += dreambox
 platforms += emma
 platforms += jazz
 platforms += jz4740

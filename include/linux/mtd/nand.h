@@ -226,6 +226,9 @@ typedef enum {
 /* Chip may not exist, so silence any errors in scan */
 #define NAND_SCAN_SILENT_NODEV	0x00040000
 
+/* For Hynix MLC flashes, the BI are written to last and (last-2) pages. */
+#define NAND_SCAN_BI_3RD_PAGE	0x00400000
+
 /* Options set by nand scan */
 /* Nand scan has allocated controller struct */
 #define NAND_CONTROLLER_ALLOC	0x80000000
@@ -387,9 +390,10 @@ struct nand_ecc_ctrl {
  * consecutive order.
  */
 struct nand_buffers {
+	/* Move data buf up in order to allow DMA over aligned buffers */
+	uint8_t databuf[NAND_MAX_PAGESIZE + NAND_MAX_OOBSIZE];
 	uint8_t	ecccalc[NAND_MAX_OOBSIZE];
 	uint8_t	ecccode[NAND_MAX_OOBSIZE];
-	uint8_t databuf[NAND_MAX_PAGESIZE + NAND_MAX_OOBSIZE];
 };
 
 /**

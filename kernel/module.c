@@ -3035,6 +3035,7 @@ SYSCALL_DEFINE3(init_module, void __user *, umod,
 
 	return 0;
 }
+EXPORT_SYMBOL(sys_init_module);
 
 static inline int within(unsigned long addr, void *start, unsigned long size)
 {

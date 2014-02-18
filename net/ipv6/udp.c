@@ -1499,6 +1499,10 @@ struct proto udpv6_prot = {
 	.clear_sk	   = udp_v6_clear_sk,
 };
 
+#ifdef CONFIG_BRCMSTB
+EXPORT_SYMBOL(udpv6_prot);
+#endif
+
 static struct inet_protosw udpv6_protosw = {
 	.type =      SOCK_DGRAM,
 	.protocol =  IPPROTO_UDP,

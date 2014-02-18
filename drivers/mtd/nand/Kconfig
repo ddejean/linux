@@ -411,6 +411,10 @@ config MTD_NAND_TMIO
 	  Support for NAND flash connected to a Toshiba Mobile IO
 	  Controller in some PDAs, including the Sharp SL6000x.
 
+config MTD_NAND_DREAMBOX
+	tristate "Dreambox NAND support"
+	depends on MTD_NAND && (DREAMBOX_DM7025 || DREAMBOX_DM8000)
+
 config MTD_NAND_NANDSIM
 	tristate "Support for NAND Flash Simulator"
 	help

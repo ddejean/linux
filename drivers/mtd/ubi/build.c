@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  *
- * Author: Artem Bityutskiy (Битюцкий Артём),
+ * Author: Artem Bityutskiy ( �),
  *         Frank Haverkamp
  */
 
@@ -1019,6 +1019,9 @@ int ubi_attach_mtd_dev(struct mtd_info *mtd, int ubi_num, int vid_hdr_offset)
 
 	ubi_devices[ubi_num] = ubi;
 	ubi_notify_all(ubi, UBI_VOLUME_ADDED, NULL);
+
+	mtd->flags |= (1<<31); // DMM hack.. used in brcmand to detect mtd partitions used by UBI
+
 	return ubi_num;
 
 out_debugfs:
@@ -1098,6 +1101,8 @@ int ubi_detach_mtd_dev(int ubi_num, int anyway)
 	 * from freeing the @ubi object.
 	 */
 	get_device(&ubi->dev);
+
+	ubi->mtd->flags &= ~(1<<31); // DMM hack.. used in brcmand to detect mtd partitions used by UBI
 
 	ubi_debugfs_exit_dev(ubi);
 	uif_close(ubi);
@@ -1286,7 +1291,11 @@ out:
 	ubi_err("UBI error: cannot initialize UBI, error %d", err);
 	return err;
 }
+#if defined(CONFIG_BRCMSTB) && !defined(MODULE)
+late_initcall(ubi_init);	/* need to wait for the MTD driver */
+#else
 module_init(ubi_init);
+#endif
 
 static void __exit ubi_exit(void)
 {

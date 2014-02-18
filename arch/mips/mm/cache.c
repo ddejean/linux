@@ -21,6 +21,10 @@
 #include <asm/cpu.h>
 #include <asm/cpu-features.h>
 
+#ifdef CONFIG_BRCMSTB
+#include <asm/brcmstb/brcmapi.h>
+#endif
+
 /* Cache operations. */
 void (*flush_cache_all)(void);
 void (*__flush_cache_all)(void);
@@ -56,6 +60,7 @@ void (*_dma_cache_wback_inv)(unsigned long start, unsigned long size);
 void (*_dma_cache_wback)(unsigned long start, unsigned long size);
 void (*_dma_cache_inv)(unsigned long start, unsigned long size);
 
+EXPORT_SYMBOL(_dma_cache_inv);
 EXPORT_SYMBOL(_dma_cache_wback_inv);
 
 #endif /* CONFIG_DMA_NONCOHERENT */
@@ -72,9 +77,12 @@ SYSCALL_DEFINE3(cacheflush, unsigned long, addr, unsigned long, bytes,
 	if (!access_ok(VERIFY_WRITE, (void __user *) addr, bytes))
 		return -EFAULT;
 
+#ifdef CONFIG_BRCMSTB
+	return brcm_cacheflush(addr, bytes, cache);
+#else
 	flush_icache_range(addr, addr + bytes);
-
 	return 0;
+#endif
 }
 
 void __flush_dcache_page(struct page *page)

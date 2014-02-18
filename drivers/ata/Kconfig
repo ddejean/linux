@@ -715,6 +715,13 @@ config PATA_WINBOND
 
 	  If unsure, say N.
 
+config PATA_XILLEON
+	tristate "Xilleon 226 PATA support"
+	depends on PCI && ATI_XILLEON
+	help
+	  This option enables support for the PATA controller of the ATI
+	  Xilleon 226 SoC.
+
 endif # ATA_BMDMA
 
 comment "PIO-only SFF controllers"

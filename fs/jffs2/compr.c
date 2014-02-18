@@ -142,6 +142,9 @@ static int jffs2_selected_compress(u8 compr, unsigned char *data_in,
  * If the cdata buffer isn't large enough to hold all the uncompressed data,
  * jffs2_compress should compress as much as will fit, and should set
  * *datalen accordingly to show the amount of data which were compressed.
+ *
+ * Caller must call jffs2_free_comprbuf() after it is done with
+ * @cpage_out.
  */
 uint16_t jffs2_compress(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 			unsigned char *data_in, unsigned char **cpage_out,
@@ -150,9 +153,9 @@ uint16_t jffs2_compress(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 	int ret = JFFS2_COMPR_NONE;
 	int mode, compr_ret;
 	struct jffs2_compressor *this, *best=NULL;
-	unsigned char *output_buf = NULL, *tmp_buf;
-	uint32_t orig_slen, orig_dlen;
+	unsigned char *output_buf = NULL, *tmp_buf, *best_buf;
 	uint32_t best_slen=0, best_dlen=0;
+	uint32_t tdl, tcdl;
 
 	if (c->mount_opts.override_compr)
 		mode = c->mount_opts.compr;
@@ -168,63 +171,60 @@ uint16_t jffs2_compress(struct jffs2_sb_info *c, struct jffs2_inode_info *f,
 		break;
 	case JFFS2_COMPR_MODE_SIZE:
 	case JFFS2_COMPR_MODE_FAVOURLZO:
-		orig_slen = *datalen;
-		orig_dlen = *cdatalen;
+		tmp_buf = kmalloc(*datalen, GFP_KERNEL);
+		if (!tmp_buf) {
+			pr_warn("JFFS2: No memory for compressor allocation. (%d bytes)\n", *datalen);
+			break;
+		}
+		best_buf = kmalloc(*datalen, GFP_KERNEL);
+		if (!best_buf) {
+			pr_warn("JFFS2: No memory for compressor allocation. (%d bytes)\n", *datalen);
+			kfree(tmp_buf);
+			break;
+		}
 		spin_lock(&jffs2_compressor_list_lock);
 		list_for_each_entry(this, &jffs2_compressor_list, list) {
 			/* Skip decompress-only backwards-compatibility and disabled modules */
 			if ((!this->compress)||(this->disabled))
 				continue;
-			/* Allocating memory for output buffer if necessary */
-			if ((this->compr_buf_size < orig_slen) && (this->compr_buf)) {
-				spin_unlock(&jffs2_compressor_list_lock);
-				kfree(this->compr_buf);
-				spin_lock(&jffs2_compressor_list_lock);
-				this->compr_buf_size=0;
-				this->compr_buf=NULL;
-			}
-			if (!this->compr_buf) {
-				spin_unlock(&jffs2_compressor_list_lock);
-				tmp_buf = kmalloc(orig_slen, GFP_KERNEL);
-				spin_lock(&jffs2_compressor_list_lock);
-				if (!tmp_buf) {
-					printk(KERN_WARNING "JFFS2: No memory for compressor allocation. (%d bytes)\n", orig_slen);
-					continue;
-				}
-				else {
-					this->compr_buf = tmp_buf;
-					this->compr_buf_size = orig_slen;
-				}
-			}
 			this->usecount++;
+			/*
+			 * XXX This spin_unlock() will cause a race with
+			 * anything that modifies jffs2_compressor_list,
+			 * particularly jffs2_unregister_compressor()
+			 */
 			spin_unlock(&jffs2_compressor_list_lock);
-			*datalen  = orig_slen;
-			*cdatalen = orig_dlen;
-			compr_ret = this->compress(data_in, this->compr_buf, datalen, cdatalen);
+			tdl = *datalen;
+			tcdl = *cdatalen;
+			compr_ret = this->compress(data_in, tmp_buf, &tdl, &tcdl);
 			spin_lock(&jffs2_compressor_list_lock);
 			this->usecount--;
-			if (!compr_ret) {
-				if (((!best_dlen) || jffs2_is_best_compression(this, best, *cdatalen, best_dlen))
-						&& (*cdatalen < *datalen)) {
-					best_dlen = *cdatalen;
-					best_slen = *datalen;
-					best = this;
-				}
+			if (compr_ret)
+				continue;
+			if ((!best_dlen || jffs2_is_best_compression(this, best, tcdl, best_dlen))
+			    && (tcdl < tdl)) {
+				unsigned char *tmp = best_buf;
+				best_dlen = tcdl;
+				best_slen = tdl;
+				best_buf = tmp_buf;
+				tmp_buf = tmp;
+				best = this;
 			}
 		}
+		spin_unlock(&jffs2_compressor_list_lock);
+		kfree(tmp_buf);
 		if (best_dlen) {
 			*cdatalen = best_dlen;
 			*datalen  = best_slen;
-			output_buf = best->compr_buf;
-			best->compr_buf = NULL;
-			best->compr_buf_size = 0;
+			output_buf = best_buf;
 			best->stat_compr_blocks++;
 			best->stat_compr_orig_size += best_slen;
 			best->stat_compr_new_size  += best_dlen;
 			ret = best->compr;
 			*cpage_out = output_buf;
 		}
-		spin_unlock(&jffs2_compressor_list_lock);
+		else
+			kfree(best_buf);
 		break;
 	case JFFS2_COMPR_MODE_FORCELZO:
 		ret = jffs2_selected_compress(JFFS2_COMPR_LZO, data_in,
@@ -302,8 +302,6 @@ int jffs2_register_compressor(struct jffs2_compressor *comp)
 		printk(KERN_WARNING "NULL compressor name at registering JFFS2 compressor. Failed.\n");
 		return -1;
 	}
-	comp->compr_buf_size=0;
-	comp->compr_buf=NULL;
 	comp->usecount=0;
 	comp->stat_compr_orig_size=0;
 	comp->stat_compr_new_size=0;

@@ -33,6 +33,10 @@
 #include <asm/system.h>
 #include <asm/prom.h>
 
+#ifdef CONFIG_BRCMSTB
+#include <asm/brcmstb/brcmapi.h>
+#endif
+
 struct cpuinfo_mips cpu_data[NR_CPUS] __read_mostly;
 
 EXPORT_SYMBOL(cpu_data);
@@ -79,7 +83,7 @@ static struct resource data_resource = { .name = "Kernel data", };
 void __init add_memory_region(phys_t start, phys_t size, long type)
 {
 	int x = boot_mem_map.nr_map;
-	struct boot_mem_map_entry *prev = boot_mem_map.map + x - 1;
+	int i;
 
 	/* Sanity check */
 	if (start + size < start) {
@@ -88,15 +92,29 @@ void __init add_memory_region(phys_t start, phys_t size, long type)
 	}
 
 	/*
-	 * Try to merge with previous entry if any.  This is far less than
-	 * perfect but is sufficient for most real world cases.
+	 * Try to merge with existing entry, if any.
 	 */
-	if (x && prev->addr + prev->size == start && prev->type == type) {
-		prev->size += size;
+	for (i = 0; i < boot_mem_map.nr_map; i++) {
+		struct boot_mem_map_entry *entry = boot_mem_map.map + i;
+		unsigned long top;
+
+		if (entry->type != type)
+			continue;
+
+		if (start + size < entry->addr)
+			continue;			/* no overlap */
+
+		if (entry->addr + entry->size < start)
+			continue;			/* no overlap */
+
+		top = max(entry->addr + entry->size, start + size);
+		entry->addr = min(entry->addr, start);
+		entry->size = top - entry->addr;
+
 		return;
 	}
 
-	if (x == BOOT_MEM_MAP_MAX) {
+	if (boot_mem_map.nr_map == BOOT_MEM_MAP_MAX) {
 		pr_err("Ooops! Too many entries in the memory map!\n");
 		return;
 	}
@@ -389,8 +407,12 @@ static void __init bootmem_init(void)
 		size = end - start;
 
 		/* Register lowmem ranges */
+#ifdef CONFIG_BRCMSTB
+		/* carve out space for bmem */
+		brcm_free_bootmem(PFN_PHYS(start), size << PAGE_SHIFT);
+#else
 		free_bootmem(PFN_PHYS(start), size << PAGE_SHIFT);
-		memory_present(0, start, end);
+#endif
 	}
 
 	/*
@@ -402,6 +424,23 @@ static void __init bootmem_init(void)
 	 * Reserve initrd memory if needed.
 	 */
 	finalize_initrd();
+
+	/*
+	 * Call memory_present() on all valid ranges, for SPARSEMEM.
+	 * This must be done after setting up bootmem, since memory_present()
+	 * may allocate bootmem.
+	 */
+	for (i = 0; i < boot_mem_map.nr_map; i++) {
+		unsigned long start, end;
+
+		if (boot_mem_map.map[i].type != BOOT_MEM_RAM)
+			continue;
+
+		start = PFN_UP(boot_mem_map.map[i].addr);
+		end   = PFN_DOWN(boot_mem_map.map[i].addr
+				    + boot_mem_map.map[i].size);
+		memory_present(0, start, end);
+	}
 }
 
 #endif	/* CONFIG_SGI_IP27 */

@@ -23,6 +23,7 @@ obj-$(CONFIG_MIPS_ALCHEMY)	+= pci-alchemy.o
 #
 # These are still pretty much in the old state, watch, go blind.
 #
+obj-$(CONFIG_ATI_XILLEON)	+= fixup-xilleon.o ops-xilleon.o pci-xilleon.o
 obj-$(CONFIG_LASAT)		+= pci-lasat.o
 obj-$(CONFIG_MIPS_COBALT)	+= fixup-cobalt.o
 obj-$(CONFIG_SOC_PNX8550)	+= fixup-pnx8550.o ops-pnx8550.o

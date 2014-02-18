@@ -218,8 +218,13 @@ struct nand_oobfree {
 	__u32 length;
 };
 
+#ifdef CONFIG_BRCMNAND_MTD_EXTENSION
+#define MTD_MAX_OOBFREE_ENTRIES	17
+#define MTD_MAX_ECCPOS_ENTRIES	320
+#else
 #define MTD_MAX_OOBFREE_ENTRIES	8
 #define MTD_MAX_ECCPOS_ENTRIES	64
+#endif
 /*
  * OBSOLETE: ECC layout control structure. Exported to user-space via ioctl
  * ECCGETLAYOUT for backwards compatbility and should not be mistaken as a

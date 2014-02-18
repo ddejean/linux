@@ -76,6 +76,8 @@ static inline int mips_sc_is_activated(struct cpuinfo_mips *c)
 	case CPU_34K:
 	case CPU_74K:
 	case CPU_1004K:
+	case CPU_BMIPS3300:
+	case CPU_BMIPS4380:
 	case CPU_BMIPS5000:
 		if (config2 & (1 << 12))
 			return 0;

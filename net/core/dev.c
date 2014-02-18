@@ -177,6 +177,13 @@
 #define PTYPE_HASH_SIZE	(16)
 #define PTYPE_HASH_MASK	(PTYPE_HASH_SIZE - 1)
 
+#ifdef CONFIG_BRCMSTB
+#include <asm/brcmstb/brcmapi.h>
+
+int (*brcm_netif_rx_hook[BRCM_RX_NUM_HOOKS])(struct sk_buff *) = { NULL };
+EXPORT_SYMBOL(brcm_netif_rx_hook);
+#endif
+
 static DEFINE_SPINLOCK(ptype_lock);
 static struct list_head ptype_base[PTYPE_HASH_SIZE] __read_mostly;
 static struct list_head ptype_all __read_mostly;	/* Taps */
@@ -3238,6 +3245,16 @@ static int __netif_receive_skb(struct sk_buff *skb)
 
 	if (!netdev_tstamp_prequeue)
 		net_timestamp_check(skb);
+
+#ifdef CONFIG_BRCMSTB
+	if (brcm_netif_rx_hook[BRCM_RX_HOOK_NETACCEL] &&
+			brcm_netif_rx_hook[BRCM_RX_HOOK_NETACCEL](skb) != 0)
+		return NET_RX_DROP;
+
+	if (brcm_netif_rx_hook[BRCM_RX_HOOK_EROUTER] &&
+			brcm_netif_rx_hook[BRCM_RX_HOOK_EROUTER](skb) != 0)
+		return NET_RX_DROP;
+#endif
 
 	trace_netif_receive_skb(skb);
 
