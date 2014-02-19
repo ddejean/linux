@@ -2230,8 +2230,12 @@ extern int check_disk_change(struct block_device *);
 extern int __invalidate_device(struct block_device *, bool);
 extern int invalidate_partition(struct gendisk *, int);
 #endif
-unsigned long invalidate_mapping_pages(struct address_space *mapping,
-					pgoff_t start, pgoff_t end);
+
+#define invalidate_mapping_pages(__mapping, __start, __end)	\
+		__invalidate_mapping_pages(__mapping, __start, __end, true)
+unsigned long __invalidate_mapping_pages(struct address_space *mapping,
+					pgoff_t start, pgoff_t end,
+					bool invalidate);
 
 static inline void invalidate_remote_inode(struct inode *inode)
 {

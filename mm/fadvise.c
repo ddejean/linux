@@ -107,7 +107,7 @@ SYSCALL_DEFINE(fadvise64_64)(int fd, loff_t offset, loff_t len, int advice)
 		nrpages = end_index - start_index + 1;
 		if (!nrpages)
 			nrpages = ~0UL;
-		
+
 		ret = force_page_cache_readahead(mapping, file,
 				start_index,
 				nrpages);
@@ -124,9 +124,16 @@ SYSCALL_DEFINE(fadvise64_64)(int fd, loff_t offset, loff_t len, int advice)
 		start_index = (offset+(PAGE_CACHE_SIZE-1)) >> PAGE_CACHE_SHIFT;
 		end_index = (endbyte >> PAGE_CACHE_SHIFT);
 
+		/*
+		 * Reduce cache eligibility.
+		 *
+		 * This does not guarantee that pages are always dropped from
+		 * page cache: active pages will be moved to the tail of the
+		 * inactive list; inactive pages will be dropped if possible.
+		 */
 		if (end_index >= start_index) {
-			unsigned long count = invalidate_mapping_pages(mapping,
-						start_index, end_index);
+			unsigned long count = __invalidate_mapping_pages(mapping,
+						start_index, end_index, false);
 
 			/*
 			 * If fewer pages were invalidated than expected then
@@ -136,8 +143,8 @@ SYSCALL_DEFINE(fadvise64_64)(int fd, loff_t offset, loff_t len, int advice)
 			 */
 			if (count < (end_index - start_index + 1)) {
 				lru_add_drain_all();
-				invalidate_mapping_pages(mapping, start_index,
-						end_index);
+				__invalidate_mapping_pages(mapping, start_index,
+						end_index, false);
 			}
 		}
 		break;

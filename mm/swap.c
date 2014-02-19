@@ -436,7 +436,7 @@ void add_page_to_unevictable_list(struct page *page)
  * 2. active, dirty/writeback page -> inactive, head, PG_reclaim
  * 3. inactive, mapped page -> none
  * 4. inactive, dirty/writeback page -> inactive, head, PG_reclaim
- * 5. inactive, clean -> inactive, tail
+ * 5. [in]active, clean -> inactive, tail
  * 6. Others -> none
  *
  * In 4, why it moves inactive's head, the VM expects the page would

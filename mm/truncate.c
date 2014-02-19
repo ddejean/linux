@@ -315,20 +315,27 @@ void truncate_inode_pages(struct address_space *mapping, loff_t lstart)
 EXPORT_SYMBOL(truncate_inode_pages);
 
 /**
- * invalidate_mapping_pages - Invalidate all the unlocked pages of one inode
+ * __invalidate_mapping_pages - Invalidate all the unlocked pages of one inode
  * @mapping: the address_space which holds the pages to invalidate
  * @start: the offset 'from' which to invalidate
  * @end: the offset 'to' which to invalidate (inclusive)
+ * @invalidate: aggressive cache invalidation when true
  *
  * This function only removes the unlocked pages, if you want to
  * remove all the pages of one inode, you must call truncate_inode_pages.
  *
- * invalidate_mapping_pages() will not block on IO activity. It will not
- * invalidate pages which are dirty, locked, under writeback or mapped into
- * pagetables.
+ * The @invalidate parameter can be used to apply a more aggressive policy
+ * (when true) that will always drop pages from page cache when possible, or to
+ * just reduce cache eligibility (when false). In the last case active pages
+ * will be moved to the tail of the inactive list by deactivate_page();
+ * inactive pages will be dropped in both cases.
+ *
+ * __invalidate_mapping_pages() will not block on IO activity. It will not
+ * invalidate pages which are dirty, locked, under writeback, mapped into
+ * pagetables, or on active lru when @invalidate is false.
  */
-unsigned long invalidate_mapping_pages(struct address_space *mapping,
-		pgoff_t start, pgoff_t end)
+unsigned long __invalidate_mapping_pages(struct address_space *mapping,
+		pgoff_t start, pgoff_t end, bool invalidate)
 {
 	struct pagevec pvec;
 	pgoff_t index = start;
@@ -359,12 +366,26 @@ unsigned long invalidate_mapping_pages(struct address_space *mapping,
 			if (!trylock_page(page))
 				continue;
 			WARN_ON(page->index != index);
-			ret = invalidate_inode_page(page);
+			/*
+			 * Invalidation of active page is rather aggressive as
+			 * we can't make sure it's not a working set of other
+			 * processes.
+			 *
+			 * When "invalidate" is false, deactivate_page() would
+			 * move active page into inactive's tail so the page
+			 * will have a chance to activate again if other
+			 * processes touch it.
+			 */
+			if (!invalidate && PageActive(page))
+				ret = 0;
+			else
+				ret = invalidate_inode_page(page);
 			unlock_page(page);
 			/*
-			 * Invalidation is a hint that the page is no longer
-			 * of interest and try to speed up its reclaim.
-			 */
+			 * Invalidation of an inactive page (or any page when
+			 * invalidate is true) is a hint that the page is no
+			 * longer of interest and try to speed up its reclaim.
+ 			 */
 			if (!ret)
 				deactivate_page(page);
 			count += ret;
@@ -376,7 +397,7 @@ unsigned long invalidate_mapping_pages(struct address_space *mapping,
 	}
 	return count;
 }
-EXPORT_SYMBOL(invalidate_mapping_pages);
+EXPORT_SYMBOL(__invalidate_mapping_pages);
 
 /*
  * This is like invalidate_complete_page(), except it ignores the page's
