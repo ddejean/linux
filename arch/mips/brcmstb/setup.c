@@ -178,7 +178,7 @@ struct bcmemac_platform_data bcmemac_0_plat_data = {
 };
 
 static struct platform_device bcmemac_0_plat_dev = {
-	.name			= "bcmemac",
+	.name			= "bcm7038_int",
 	.id			= 0,
 	.num_resources		= ARRAY_SIZE(bcmemac_0_resources),
 	.resource		= bcmemac_0_resources,

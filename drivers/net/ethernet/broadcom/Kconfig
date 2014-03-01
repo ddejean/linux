@@ -119,4 +119,11 @@ config BNX2X
 	  To compile this driver as a module, choose M here: the module
 	  will be called bnx2x.  This is recommended.
 
+config BCM7038_INT
+	tristate "Broadcom BCM7038 Internel Ethernet support"
+	select PHYLIB
+	---help---
+	This driver supports Broadcom BCM7038 ethernet internal chip.
+
+
 endif # NET_VENDOR_BROADCOM

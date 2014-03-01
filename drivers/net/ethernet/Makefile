@@ -12,7 +12,6 @@ obj-$(CONFIG_NET_VENDOR_APPLE) += apple/
 obj-$(CONFIG_NET_VENDOR_ATHEROS) += atheros/
 obj-$(CONFIG_NET_ATMEL) += cadence/
 obj-$(CONFIG_NET_BFIN) += adi/
-#obj-$(CONFIG_BCMEMAC) += bcmemac/
 obj-$(CONFIG_BCMGENET) += bcmgenet/
 obj-$(CONFIG_NET_VENDOR_BROADCOM) += broadcom/
 obj-$(CONFIG_NET_VENDOR_BROCADE) += brocade/
