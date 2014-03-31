@@ -20,81 +20,102 @@
 #include <linux/delay.h>
 
 #include "bcm7038_mii.h"
+#include "bcm7038_emac.h"
 
-static uint32_t mii_read(struct bcm7038_emac_regs *regs, uint32_t reg)
+void mii_write(volatile struct bcm7038_emac_regs *regs,
+                uint32_t phy_id,
+                uint32_t reg,
+                uint32_t value)
 {
         uint32_t data;
+        data = EMAC_MDIO_RD |
+                (phy_id << EMAC_MDIO_PMD_SHIFT) |
+                (reg << EMAC_MDIO_REG_SHIFT) |
+                (value & 0xffff);
+        regs->mdio_data = data;
+        udelay(1000);
 
-        data = EMAC_MDIO_RD | (reg << EMAC_MDIO_REG_SHIFT);
-        writel(data, &regs->mdio_data);
-
-        while (!(readl(&regs->int_status) & EMAC_INT_MDIO_INT));
-
-        data = readl(&regs->int_status) | EMAC_INT_MDIO_INT;
-        writel(data, &regs->int_status);
-
-        return readl(&regs->mdio_data) & 0xffff;
+        while (!(regs->int_status & EMAC_INT_MDIO_INT));
+        regs->int_status |= EMAC_INT_MDIO_INT;
 }
 
-static void mii_write(struct bcm7038_emac_regs *regs, uint32_t reg, uint32_t val)
+uint32_t mii_read(volatile struct bcm7038_emac_regs * regs,
+                uint32_t phy_id,
+                uint32_t reg)
+{
+        regs->mdio_data = EMAC_MDIO_RD |
+                (phy_id << EMAC_MDIO_PMD_SHIFT) |
+                (reg << EMAC_MDIO_REG_SHIFT);
+        udelay(1000);
+
+        while (!(regs->int_status & EMAC_INT_MDIO_INT));
+        regs->int_status |= EMAC_INT_MDIO_INT;
+
+        return regs->mdio_data & 0xffff;
+}
+
+MII_CONFIG mii_getconfig(volatile struct bcm7038_emac_regs *regs)
 {
         uint32_t data;
+        MII_CONFIG eConfig = 0;
 
-        data = EMAC_MDIO_WR | (reg << EMAC_MDIO_REG_SHIFT) | val;
-        writel(data, &regs->mdio_data);
+        /* Read the Link Partner Ability */
+        data = mii_read(regs, MII_INT, MII_LPA);
+        if (data & LPA_100FULL) {           /* 100 MB Full-Duplex */
+                eConfig = (MII_100MBIT | MII_FULLDUPLEX);
 
-        while (!(readl(&regs->int_status) & EMAC_INT_MDIO_INT));
+        } else if (data & LPA_100HALF) {    /* 100 MB Half-Duplex */
+                eConfig = MII_100MBIT;
 
-        data = readl(&regs->int_status) | EMAC_INT_MDIO_INT;
-        writel(data, &regs->int_status);
+        } else if (data & LPA_10FULL) {     /* 10 MB Full-Duplex */
+                eConfig = MII_FULLDUPLEX;
+        }
 
+        return eConfig;
 }
 
-static void mii_soft_reset(struct bcm7038_emac_regs *regs)
-{
-        uint32_t ret;
-
-        mii_write(regs, MII_BMCR, BMCR_RESET);
-        udelay(10);
-        do {
-                ret = mii_read(regs, MII_BMCR);
-        } while (ret & BMCR_RESET);
-}
-
-void bcm7038_mii_init(struct bcm7038_emac_regs *regs)
-{
-        BUG_ON(regs == NULL);
-        mii_soft_reset(regs);
-        // TODO: mii_setup
-}
-
-
-static uint32_t mii_get_config(struct bcm7038_emac_regs *regs)
-{
-        uint32_t data;
-
-        data = mii_read(regs, MII_LPA);
-        return mii_nway_result(data);
-}
-
-uint32_t bcm7038_mii_autoconfigure(struct bcm7038_emac_regs *regs)
+/*
+ * Auto-Configure this MII interface.
+ */
+MII_CONFIG mii_autoconfigure(volatile struct bcm7038_emac_regs *regs)
 {
         int i;
         uint32_t data;
-        uint32_t e_config;
+        MII_CONFIG eConfig;
 
-        data = mii_read(regs, MII_BMSR);
+        /* enable and restart autonegotiation */
+        data = mii_read(regs, MII_INT, MII_BMCR);
         data |= (BMCR_ANRESTART | BMCR_ANENABLE);
-        mii_write(regs, MII_BMCR, data);
+        mii_write(regs, MII_INT, MII_BMCR, data);
 
+        /* wait for it to finish */
         for (i = 0; i < 1000; i++) {
-                udelay(10);
-                data = mii_read(regs, MII_BMSR);
-                if (data & BMSR_ANEGCOMPLETE)
+                udelay(1000);
+                data = mii_read(regs, MII_INT, MII_BMSR);
+                if (data & BMSR_ANEGCOMPLETE) {
                         break;
+                }
         }
 
-        e_config = mii_get_config(regs);
-        mii_write(regs, MII_RESV2, 0xF000);
-        return e_config;
+        eConfig = mii_getconfig(regs);
+        if (data & BMSR_ANEGCOMPLETE) {
+                eConfig |= MII_AUTONEG;
+        }
+        mii_write(regs, MII_INT, 0x1A, 0x0F00);
+
+        return eConfig;
 }
+
+void mii_soft_reset(volatile struct bcm7038_emac_regs *regs)
+{
+        uint32_t data;
+
+        mii_write(regs, MII_INT, MII_BMCR, BMCR_RESET);
+        // wait ~10usec
+        udelay(10);
+        do {
+                data = mii_read(regs, MII_INT, MII_BMCR);
+        } while (data & BMCR_RESET);
+}
+
+

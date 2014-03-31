@@ -18,10 +18,21 @@
 #ifndef _BCM7038_MII_H_
 #define _BCM7038_MII_H_
 
-#include "bcm7038_emac.h"
+struct bcm7038_emac_regs;
 
-void bcm7038_mii_init(struct bcm7038_emac_regs *regs);
+/*
+ * MII layer definition.
+ */
+#define MII_INT         1
 
-uint32_t bcm7038_mii_autoconfigure(struct bcm7038_emac_regs *regs);
+typedef enum {
+    MII_100MBIT     = 0x0001,
+    MII_FULLDUPLEX  = 0x0002,
+    MII_AUTONEG     = 0x0004,
+} MII_CONFIG;
+
+void mii_soft_reset(volatile struct bcm7038_emac_regs *regs);
+
+MII_CONFIG mii_autoconfigure(volatile struct bcm7038_emac_regs *regs);
 
 #endif /* _BCM7038_MII_H_ */

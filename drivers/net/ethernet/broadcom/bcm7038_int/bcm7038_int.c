@@ -26,6 +26,7 @@
 
 #include <asm/brcmstb/brcmstb.h>
 
+#include "bcm7038_mii.h"
 #include "bcm7038_dma.h"
 #include "bcm7038_int.h"
 #include "bcm7038_emac.h"
@@ -59,258 +60,6 @@ struct bcm7038_int_priv {
         struct sk_buff* tx_skb[DMA_TX_DESC_COUNT];
 };
 
-
-/*
- * MII layer definition.
- */
-#define MII_INT         1
-typedef enum {
-    MII_100MBIT     = 0x0001,
-    MII_FULLDUPLEX  = 0x0002,
-    MII_AUTONEG     = 0x0004,
-} MII_CONFIG;
-
-/*
- * mii_write: Write a value to the MII
- */
-static void mii_write(volatile struct bcm7038_emac_regs *regs, uint32_t uPhyAddr, uint32_t uRegAddr, uint32_t data)
-{
-    uint32_t d;
-    d = EMAC_MDIO_RD | (uPhyAddr << EMAC_MDIO_PMD_SHIFT) | (uRegAddr << EMAC_MDIO_REG_SHIFT) | data;
-    regs->mdio_data = d;
-    udelay(1000);
-    while (!(regs->int_status & EMAC_INT_MDIO_INT));
-    regs->int_status |= EMAC_INT_MDIO_INT;
-}
-
-/*
- * mii_read: Read a value from the MII
- */
-static uint32_t mii_read(volatile struct bcm7038_emac_regs * regs, uint32_t uPhyAddr, uint32_t uRegAddr)
-{
-    regs->mdio_data = EMAC_MDIO_RD | (uPhyAddr << EMAC_MDIO_PMD_SHIFT) | (uRegAddr << EMAC_MDIO_REG_SHIFT);
-    udelay(1000);
-    while (!(regs->int_status & EMAC_INT_MDIO_INT));
-    regs->int_status |= EMAC_INT_MDIO_INT;
-    return regs->mdio_data & 0xffff;
-}
-
-/*
- * mii_GetConfig: Return the current MII configuration
- */
-static MII_CONFIG mii_getconfig(volatile struct bcm7038_emac_regs *regs)
-{
-    uint32_t uData;
-    MII_CONFIG eConfig = 0;
-
-    /* Read the Link Partner Ability */
-    uData = mii_read(regs, MII_INT, MII_LPA);
-    if (uData & LPA_100FULL) {           /* 100 MB Full-Duplex */
-        eConfig = (MII_100MBIT | MII_FULLDUPLEX);
-    } else if (uData & LPA_100HALF) {    /* 100 MB Half-Duplex */
-        eConfig = MII_100MBIT;
-    } else if (uData & LPA_10FULL) {     /* 10 MB Full-Duplex */
-        eConfig = MII_FULLDUPLEX;
-    }
-
-    return eConfig;
-}
-
-/*
- * Auto-Configure this MII interface.
- */
-static MII_CONFIG mii_autoconfigure(volatile struct bcm7038_emac_regs *regs)
-{
-    int i;
-    uint32_t uData;
-    MII_CONFIG eConfig;
-
-    /* enable and restart autonegotiation */
-    uData = mii_read(regs, MII_INT, MII_BMCR);
-    uData |= (BMCR_ANRESTART | BMCR_ANENABLE);
-    mii_write(regs, MII_INT, MII_BMCR, uData);
-
-    /* wait for it to finish */
-    for (i = 0; i < 1000; i++) {
-        udelay(1000);
-        uData = mii_read(regs, MII_INT, MII_BMSR);
-        if (uData & BMSR_ANEGCOMPLETE) {
-            break;
-        }
-    }
-
-    eConfig = mii_getconfig(regs);
-    if (uData & BMSR_ANEGCOMPLETE) {
-        eConfig |= MII_AUTONEG;
-    }
-    mii_write(regs, MII_INT, 0x1A, 0x0F00);
-
-    return eConfig;
-}
-
-#ifdef PHY_LOOPBACK
-/*
- * mii_Loopback: Set the MII loopback mode
- */
-static void mii_loopback(volatile struct bcm7038_emac_regs *regs)
-{
-    uint32_t uData;
-
-    uData = mii_read(regs, MII_INT, MII_BMCR) & 0xffff;
-    /* Disable autonegotiation */
-    uData &= ~BMCR_ANENABLE;
-    /* Enable Loopback */
-    uData |= BMCR_LOOPBACK;
-    mii_write(regs, MII_INT, MII_BMCR, uData);
-}
-#endif
-
-/*
- * soft_reset: Reset the MII
- */
-static void soft_reset(volatile struct bcm7038_emac_regs *regs)
-{
-    uint32_t uData;
-
-    mii_write(regs, MII_INT, MII_BMCR, BMCR_RESET);
-    // wait ~10usec
-    udelay(10);
-    do {
-        uData = mii_read(regs, MII_INT, MII_BMCR);
-    } while (uData & BMCR_RESET);
-
-}
-
-/*
- * EMAC management.
- */
-static void emac_off(volatile struct bcm7038_emac_regs *regs)
-{
-        regs->config &= ~EMAC_CONFIG_ENABLE;
-        regs->config |= EMAC_CONFIG_DISABLE;
-        while (regs->config & EMAC_CONFIG_DISABLE);
-}
-
-static void emac_on(volatile struct bcm7038_emac_regs *regs)
-{
-        regs->config |= EMAC_CONFIG_ENABLE;
-}
-
-static void emac_write_mac_address(volatile struct bcm7038_emac_regs *regs, uint8_t *addr)
-{
-        bool emac_enabled;
-
-        emac_enabled = (regs->config & EMAC_CONFIG_ENABLE) == EMAC_CONFIG_ENABLE;
-        if (emac_enabled)
-                emac_off(regs);
-
-        regs->pm_data[0].lo = (addr[2] << 24) | (addr[3] << 16)
-                            | (addr[4] <<  8) | (addr[5]);
-        regs->pm_data[0].hi = (addr[0] <<  8) | (addr[1])
-                            | (1 << 16); /* Enable address in PM register */
-
-        if (emac_enabled)
-                emac_on(regs);
-}
-
-static void emac_reset(volatile struct bcm7038_emac_regs *regs)
-{
-        regs->config = EMAC_CONFIG_DISABLE;
-        while (regs->config & EMAC_CONFIG_DISABLE);
-
-        regs->config = EMAC_CONFIG_SOFT_RESET;
-        while (regs->config & EMAC_CONFIG_SOFT_RESET);
-}
-
-static void dma_init(struct bcm7038_dma *dma)
-{
-        /* Initialize IUDMA registers */
-        dma->regs->config = DMA_CONFIG_ENABLE | DMA_FLOWC_CH1_EN;
-        dma->regs->ch1_flowctl_thres_lo = DMA_FC_THRESH_LOW;
-        dma->regs->ch1_flowctl_thres_hi = DMA_FC_THRESH_HIGH;
-        dma->regs->ch1_flowctl_alloc = 0;
-
-        /* Initialize transmit DMA */
-        dma->tx_channel->config = 0;
-        dma->tx_channel->max_burst = DMA_MAX_BURST_LENGTH;
-        dma->tx_channel->int_mask = 0;
-        dma->tx_channel->int_status = DMA_INT_DONE | DMA_INT_NO_DESC | DMA_INT_BUFF_DONE;
-        dma->tx_channel->desc_base = virt_to_phys(dma->tx_desc);
-
-        /* Initialize receive DMA */
-        dma->rx_channel->config = 0;
-        dma->rx_channel->max_burst = DMA_MAX_BURST_LENGTH;
-        dma->rx_channel->int_mask = 0;
-        dma->rx_channel->int_status = DMA_INT_DONE | DMA_INT_NO_DESC | DMA_INT_BUFF_DONE;
-        dma->rx_channel->desc_offset = 0;       /* Start at descriptor 0 */
-        dma->rx_channel->desc_base = virt_to_phys(dma->rx_desc);
-}
-
-static void dma_stop(struct bcm7038_dma *dma)
-{
-        dma->rx_channel->int_mask = 0;
-        dma->rx_channel->config   = 0;
-        dma->tx_channel->int_mask = 0;
-        dma->tx_channel->config   = 0;
-        dma->regs->config &= ~DMA_CONFIG_ENABLE;
-}
-
-static void emac_init(volatile struct bcm7038_emac_regs *regs)
-{
-        MII_CONFIG e_config;
-
-        emac_reset(regs);
-
-        regs->mdio_freq = EMAC_MII_PRE_EN | EMAC_MDIO_MDC;
-        soft_reset(regs);
-
-        /* Launch link configuration */
-        e_config = mii_autoconfigure(regs);
-        if ((e_config & MII_AUTONEG) != MII_AUTONEG) {
-                printk(KERN_ERR "bcm7038int: MII auto negotiation timed out!\n");
-        }
-
-        if (e_config & (MII_100MBIT | MII_FULLDUPLEX)) {
-                printk(KERN_INFO "bcm7038int: 100MB full duplex configuration\n");
-        } else if (e_config & MII_100MBIT) {
-                printk(KERN_INFO "bcm7038int: 100MB half duplex configuration\n");
-        } else if (e_config & MII_FULLDUPLEX) {
-                printk(KERN_INFO "bcm7038int: 10MB full duplex configuration\n");
-        } else {
-                printk(KERN_INFO "bcm7038int: 10MB half duplex configuration\n");
-        }
-
-        if (e_config & MII_FULLDUPLEX) {
-                /* Enable full duplex */
-                regs->tx_control = EMAC_TX_CONTROL_FD;
-        }
-
-        /* Initialize registers */
-        regs->rx_control = EMAC_RX_CONTROL_FC_EN | EMAC_RX_CONTROL_UNIFLOW;
-        regs->rx_max_len = MAC_MAX_MTU_SIZE;
-        regs->tx_max_len = MAC_MAX_MTU_SIZE;
-        regs->tx_thresh = EMAC_TX_WATERMARK;
-        regs->mib_control = EMAC_MIB_CONTROL_NO_CLEAR;
-        regs->int_mask = 0; /* Mask all EMAC interrupts */
-
-        wmb();
-        regs->config = EMAC_CONFIG_ENABLE;
-}
-
-static void emac_stop(volatile struct bcm7038_emac_regs *regs)
-{
-        regs->int_mask = 0;
-        regs->config &= ~EMAC_CONFIG_ENABLE;
-        regs->config |= EMAC_CONFIG_DISABLE;
-        while (regs->config & EMAC_CONFIG_DISABLE) {
-                udelay(1);
-        }
-}
-
-
-/*
- * Driver implementation.
- */
 
 static void bcm7038_int_init_rx_ring(struct bcm7038_int_priv *priv)
 {
@@ -693,8 +442,8 @@ static int bcm7038_int_open(struct net_device *dev)
         bcm7038_int_init_rx_ring(priv);
         bcm7038_int_init_tx_ring(priv);
 
-        dma_init(&priv->dma);
-        emac_init(priv->emac_regs);
+        bcm7038_dma_init(&priv->dma);
+        bcm7038_emac_init(priv->emac_regs);
 
         priv->dma.rx_channel->int_mask |= DMA_INT_DONE;
         priv->dma.rx_channel->config |= DMA_CONFIG_ENABLE;
@@ -734,8 +483,8 @@ static int bcm7038_int_stop(struct net_device *dev)
         priv->dma.regs->iudma_irq_mask &= ~DMA_INT_DONE;
 
         /* Stop hardware */
-        dma_stop(&priv->dma);
-        emac_stop(priv->emac_regs);
+        bcm7038_dma_stop(&priv->dma);
+        bcm7038_emac_stop(priv->emac_regs);
 
         /* Empty DMA descriptors */
         bcm7038_int_cleanup_tx_ring(priv);
@@ -758,7 +507,7 @@ static int bcm7038_int_set_mac_address(struct net_device *dev, void *p)
 
         priv = netdev_priv(dev);
         memcpy(dev->dev_addr, addr->sa_data, ETH_ALEN);
-        emac_write_mac_address(priv->emac_regs, dev->dev_addr);
+        bcm7038_emac_write_mac_address(priv->emac_regs, dev->dev_addr);
 
         return 0;
 }

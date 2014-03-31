@@ -149,24 +149,11 @@ struct bcm7038_emac_regs {
         struct bcm7038_emac_rx_mib rx_mib;
 };
 
-/*
- * Initialize EMAC registers.
- */
-struct bcm7038_emac_regs* bcm7038_emac_init(char *mem_base);
+void bcm7038_emac_write_mac_address(volatile struct bcm7038_emac_regs *regs,
+                                    uint8_t *addr);
 
-/*
- * Enable EMAC hardware.
- */
-void bcm7038_emac_enable(struct bcm7038_emac_regs *regs);
+void bcm7038_emac_init(volatile struct bcm7038_emac_regs *regs);
 
-/*
- * Disable EMAC hardware.
- */
-void bcm7038_emac_disable(struct bcm7038_emac_regs *regs);
-
-/*
- * Set ethernet MAC address.
- */
-void bcm7038_emac_set_mac_address(struct bcm7038_emac_regs *regs, const uint8_t *addr);
+void bcm7038_emac_stop(volatile struct bcm7038_emac_regs *regs);
 
 #endif /* _BCM7038_EMAC_H_ */

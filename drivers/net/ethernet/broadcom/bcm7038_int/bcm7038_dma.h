@@ -150,28 +150,6 @@ struct bcm7038_dma {
         volatile struct bcm7038_dma_desc    *tx_desc;
 };
 
-/**
- * Initialize DMA engine and channels. Fills dma reprensentation with offsets
- * in the provided memory area.
- */
-void bcm7038_dma_init(struct bcm7038_dma *dma, char *mem_base);
-
-/**
- * Mask dma IRQs
- */
-void bcm7038_dma_disable_irq(struct bcm7038_dma *dma);
-
-/**
- * Enable DMA.
- */
-void bcm7038_dma_enable(struct bcm7038_dma *dma);
-
-void bcm7038_dma_rx_enable(struct bcm7038_dma *dma);
-
-/**
- * Ack interrupt from DMA.
- */
-void bcm7038_dma_ack_interrupt(struct bcm7038_dma *dma);
-
-
+void bcm7038_dma_init(struct bcm7038_dma *dma);
+void bcm7038_dma_stop(struct bcm7038_dma *dma);
 #endif /* _BCM7038_DMA_H_ */
