@@ -684,5 +684,5 @@ module_init(bcm7038_int_init);
 module_exit(bcm7038_int_exit);
 
 MODULE_DESCRIPTION("BCM7038 internal ethernet driver");
-MODULE_AUTHOR("Damien Dejean <dam.dejean@gmail.com");
+MODULE_AUTHOR("Damien Dejean <dam.dejean@gmail.com>");
 MODULE_LICENSE("GPL");
