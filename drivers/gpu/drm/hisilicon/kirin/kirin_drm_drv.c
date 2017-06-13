@@ -318,8 +318,6 @@ static int kirin_drm_suspend(struct device *dev)
 	struct drm_device *drm = dev_get_drvdata(dev);
 	struct drm_connector *connector;
 
-	drm_kms_helper_poll_disable(drm);
-
 	drm_modeset_lock_all(drm);
 	list_for_each_entry(connector, &drm->mode_config.connector_list, head) {
 		int old_dpms = connector->dpms;
@@ -340,14 +338,8 @@ static int kirin_drm_resume(struct device *dev)
 	struct drm_device *drm = dev_get_drvdata(dev);
 	struct drm_connector *connector;
 
-	/* reset all the states of crtc/plane/encoder/connector */
-	drm_mode_config_reset(drm);
-
-	/* init kms poll for handling hpd */
-	drm_kms_helper_poll_init(drm);
-
-	/* force detection after connectors init */
-	(void)drm_helper_hpd_irq_event(drm);
+        /* reset all the states of crtc/plane/encoder/connector */
+        drm_mode_config_reset(drm);
 
 	drm_modeset_lock_all(drm);
 	list_for_each_entry(connector, &drm->mode_config.connector_list, head) {
@@ -359,8 +351,6 @@ static int kirin_drm_resume(struct device *dev)
 		}
 	}
 	drm_modeset_unlock_all(drm);
-
-	drm_kms_helper_poll_enable(drm);
 
 	return 0;
 }
